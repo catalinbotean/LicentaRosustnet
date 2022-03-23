@@ -295,6 +295,42 @@ class DeepV3Plus(nn.Module):
             else:
                 # raise 'unknown deepv3 variant: {}'.format(self.variant)
                 print("Not using Dilation ")
+        elif trunk == 'mobilenetv3':
+            channel_3rd = 16
+
+            prev_final_channel = 576
+
+            final_channel = 1024
+            resnet = Mobilenet.mobilenet_v3(pretrained=True,
+                    iw=self.args.wt_layer)
+            self.layer0 = nn.Sequential(resnet.features[0],
+                                        resnet.features[1])
+            self.layer1 = nn.Sequential(resnet.features[2], resnet.features[3],
+                                        resnet.features[4], resnet.features[5], resnet.features[6])
+            self.layer2 = nn.Sequential(resnet.features[7], resnet.features[8], resnet.features[9], resnet.features[10])
+
+            # self.layer3 = nn.Sequential(resnet.features[11], resnet.features[12], resnet.features[13], resnet.features[14], resnet.features[15], resnet.features[16])
+            # self.layer4 = nn.Sequential(resnet.features[17], resnet.features[18])
+
+            self.layer3 = nn.Sequential(resnet.features[11], resnet.features[12], resnet.features[13],
+                                        resnet.features[14], resnet.features[15], resnet.features[16],
+                                        resnet.features[17])
+            self.layer4 = nn.Sequential(resnet.features[18])
+
+            if self.variant == 'D':
+                for n, m in self.layer2.named_modules():
+                    if isinstance(m, nn.Conv2d) and m.stride==(2,2):
+                        m.dilation, m.padding, m.stride = (2, 2), (2, 2), (1, 1)
+                for n, m in self.layer3.named_modules():
+                    if isinstance(m, nn.Conv2d) and m.stride==(2,2):
+                        m.dilation, m.padding, m.stride = (4, 4), (4, 4), (1, 1)
+            elif self.variant == 'D16':
+                for n, m in self.layer3.named_modules():
+                    if isinstance(m, nn.Conv2d) and m.stride==(2,2):
+                        m.dilation, m.padding, m.stride = (2, 2), (2, 2), (1, 1)
+            else:
+                # raise 'unknown deepv3 variant: {}'.format(self.variant)
+                print("Not using Dilation ")
         else:
             channel_1st = 3
             channel_2nd = 64
@@ -482,7 +518,7 @@ class DeepV3Plus(nn.Module):
 
         x_size = x.size()  # 800
 
-        if self.trunk == 'mobilenetv2' or self.trunk == 'shufflenetv2':
+        if self.trunk == 'mobilenetv2' or self.trunk == 'mobilenev3' or self.trunk == 'shufflenetv2':
             x_tuple = self.layer0([x, w_arr])
             x = x_tuple[0]
             w_arr = x_tuple[1]
@@ -752,12 +788,12 @@ def DeepShuffleNetV3PlusD(args, num_classes, criterion, criterion_aux):
     return DeepV3Plus(num_classes, trunk='shufflenetv2', criterion=criterion, criterion_aux=criterion_aux,
                     variant='D16', skip='m1', args=args)
 
-def DeepMobileNetV3PlusD(args, num_classes, criterion, criterion_aux):
+def DeepV3PlusDMobileNetV3(args, num_classes, criterion, criterion_aux):
     """
-    ShuffleNet Based Network
+    MobileNetV3 Based Network
     """
-    print("Model : DeepLabv3+, Backbone : mobilenetv2")
-    return DeepV3Plus(num_classes, trunk='mobilenetv2', criterion=criterion, criterion_aux=criterion_aux,
+    print("Model : DeepLabv3+, Backbone : mobilenetv3")
+    return DeepV3Plus(num_classes, trunk='mobilenetv3', criterion=criterion, criterion_aux=criterion_aux,
                     variant='D16', skip='m1', args=args)
 
 def DeepMobileNetV3PlusD_OS8(args, num_classes, criterion, criterion_aux):
