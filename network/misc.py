@@ -1,9 +1,10 @@
 import warnings
 from typing import Callable, List, Optional
+from .instance_whitening import InstanceWhitening
 
 import torch
 from torch import Tensor
-
+from torch import nn
 from .utils import _log_api_usage_once
 
 
@@ -80,13 +81,14 @@ class ConvNormActivation(torch.nn.Sequential):
         inplace: Optional[bool] = True,
         bias: Optional[bool] = None,
         conv_layer: Callable[..., torch.nn.Module] = torch.nn.Conv2d,
+        iw: int = 0
     ) -> None:
 
         if padding is None:
             padding = (kernel_size - 1) // 2 * dilation
         if bias is None:
             bias = norm_layer is None
-
+        self.iw = iw
         layers = [
             conv_layer(
                 in_channels,
@@ -106,14 +108,47 @@ class ConvNormActivation(torch.nn.Sequential):
         if activation_layer is not None:
             params = {} if inplace is None else {"inplace": inplace}
             layers.append(activation_layer(**params))
+        if iw == 1:
+            instance_norm_layer = InstanceWhitening(out_channels)
+        elif iw == 2:
+            instance_norm_layer = InstanceWhitening(out_channels)
+        elif iw == 3:
+            instance_norm_layer = nn.InstanceNorm2d(out_channels, affine=False)
+        elif iw == 4:
+            instance_norm_layer = nn.InstanceNorm2d(out_channels, affine=False)
+        else:
+            instance_norm_layer = nn.Sequential()
+        layers.append(instance_norm_layer)
         super().__init__(*layers)
         _log_api_usage_once(self)
         self.out_channels = out_channels
 
         if self.__class__ == ConvNormActivation:
             warnings.warn(
-                "Don't use ConvNormActivation directly, please use Conv2dNormActivation and Conv3dNormActivation instead."
+                "Don't use ConvNormActivation directly, please use Conv2dNormActivation and Conv3dNormActivation "
+                "instead. "
             )
+
+    def forward(self, x_tuple):
+        if len(x_tuple) == 2:
+            w_arr = x_tuple[1]
+            x = x_tuple[0]
+        else:
+            print("error in BN forward path")
+            return
+
+        for i, module in enumerate(self):
+            if i == len(self) - 1:
+                if self.iw >= 1:
+                    if self.iw == 1 or self.iw == 2:
+                        x, w = self.instance_norm_layer(x)
+                        w_arr.append(w)
+                    else:
+                        x = self.instance_norm_layer(x)
+            else:
+                x = module(x)
+
+        return [x, w_arr]
 
 
 class Conv2dNormActivation(ConvNormActivation):
@@ -146,6 +181,7 @@ class Conv2dNormActivation(ConvNormActivation):
         dilation: int = 1,
         inplace: Optional[bool] = True,
         bias: Optional[bool] = None,
+        iw: int = 0
     ) -> None:
 
         super().__init__(
@@ -161,6 +197,7 @@ class Conv2dNormActivation(ConvNormActivation):
             inplace,
             bias,
             torch.nn.Conv2d,
+            iw,
         )
 
 
@@ -235,7 +272,7 @@ class SqueezeExcitation(torch.nn.Module):
         self.avgpool = torch.nn.AdaptiveAvgPool2d(1)
         self.fc1 = torch.nn.Conv2d(input_channels, squeeze_channels, 1)
         self.fc2 = torch.nn.Conv2d(squeeze_channels, input_channels, 1)
-        self.activation = activation()
+        self.activation = activation
         self.scale_activation = scale_activation()
 
     def _scale(self, input: Tensor) -> Tensor:
